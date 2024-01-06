@@ -18,37 +18,51 @@
 ;   Linux:         nasm paq7asmsse.asm -f elf
 ;
 
-section .text use32 class=CODE
+
+ifndef X64
+.686p
+.XMM
+.model flat, C
+endif
+
+
+
+; section .text use32 class=CODE
+_TEXT SEGMENT
+
 
 ; Vector product a*b of n signed words, returning signed dword scaled
 ; down by 8 bits. n is rounded up to a multiple of 8.
 
-global dot_product              ; (short* a, short* b, int n)
+dot_product PROC	a, b, n		; (short* a, short* b, int n)
 align 16
-dot_product:
-  mov      eax, [esp+4]         ; a
-  mov      edx, [esp+8]         ; b
-  mov      ecx, [esp+12]        ; n
+
+  mov      eax, a				; a
+  mov      edx, b				; b
+  mov      ecx, n				; n
   add      ecx, 7               ; n rounding up
   and      ecx, -8
-  jz .done
+  jz done
   sub      eax, 16
   sub      edx, 16
   pxor    xmm0, xmm0            ; sum = 0
-.loop:                          ; each loop sums 4 products
+loop1:							; each loop sums 4 products
   movdqa  xmm1, [eax+ecx*2]     ; put partial sums of vector product in xmm0
   pmaddwd xmm1, [edx+ecx*2]
   psrad   xmm1, 8
   paddd   xmm0, xmm1
   sub ecx, 8
-  ja .loop
+  ja loop1
   movhlps xmm1, xmm0            ; add 4 parts of xmm0 and return in eax
   paddd   xmm0, xmm1
-  pshuflw xmm1, xmm0, 0xE
+  pshuflw xmm1, xmm0, 15
   paddd   xmm0, xmm1
   movd     eax, xmm0
-.done:
+done:
   ret
+
+dot_product ENDP
+
 
 ; Train n neural network weights w[n] on inputs t[n] and err.
 ; w[i] += t[i]*err*2+1 >> 17 bounded to +- 32K.
@@ -57,23 +71,23 @@ dot_product:
 ; Train for SSE2
 ; Use this code to get some performance...
 
-global train ; (short* t, short* w, int n, int err)
+train PROC	t:dword, w, n, err		; (short* t, short* w, int n, int err)
 align 16
-train:
-  mov         eax, [esp+4]          ; t
-  mov         edx, [esp+8]          ; w
-  mov         ecx, [esp+12]         ; n
+
+  mov         eax, t				; t
+  mov         edx, w				; w
+  mov         ecx, n				; n
   add         ecx, 15               ; n/16 rounding up
   and         ecx, -16
-  jz .done
+  jz done
   sub         eax, 32
   sub         edx, 32
-  movd       xmm0, [esp+16]
+  movd		 xmm0, err
   pcmpeqb    xmm6, xmm6
   pshuflw    xmm0, xmm0, 0
   psrlw      xmm6, 15               ; pw_1
   punpcklqdq xmm0, xmm0
-.loop:                              ; each iteration adjusts 16 weights
+loop2:								; each iteration adjusts 16 weights
   movdqa     xmm3, [eax+ecx*2 +0]   ; t[i]
   movdqa     xmm5, [eax+ecx*2+16]
   paddsw     xmm3, xmm3             ; t[i]*2
@@ -89,6 +103,10 @@ train:
   movdqa [edx+ecx*2+ 0], xmm3
   movdqa [edx+ecx*2+16], xmm5
   sub     ecx, 16
-  ja .loop
-.done:
+  ja loop2
+done:
   ret
+
+train ENDP
+
+END
